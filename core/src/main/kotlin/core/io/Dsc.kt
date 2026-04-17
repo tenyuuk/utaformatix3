@@ -194,9 +194,13 @@ object Dsc {
         return 0.0
     }
 
+    // Nonlinear envelope scaling for trill, ported from AllSing _581._1311
+    private fun nonlinearEnvelopeScale(x: Double): Double {
+        return if (x <= 0.5) x * 2.0 else 1.0 + 9.0 * (x - 0.5) / 0.5
+    }
+
     private fun parsePitch(track: DscTrack, startTick: Long, transposition: Double): List<Pair<Long, Double>> {
         val convertedPoints = mutableListOf<Pair<Long, Double>>()
-        var currentLocalTick = 0L
         
         val trackDurationTicks = track.notes.sumOf { (it.duration * TICKS_PER_BEAT).toLong() }
         if (trackDurationTicks == 0L) return emptyList()
@@ -215,35 +219,40 @@ object Dsc {
             val beat = t.toDouble() / TICKS_PER_BEAT
             var offset = 0.0
             
-            // coreParams (核心发音小段数组) and trailingSegment are formant/timbre parameters,
-            // NOT pitch modifications. Only skills (frequency, trill) affect pitch.
-            
-            // Evaluate track skills
+            // Only skills (frequency, trill) affect pitch.
+            // coreParams (核心发音小段数组) and trailingSegment are formant/timbre parameters.
             if (track.skills != null) {
                 for (skill in track.skills!!) {
                     if (beat >= skill.start && beat <= skill.end) {
                         val envelope = evaluateEnvelope(beat, skill.start, skill.peakTime, skill.end, skill.sharpness, skill.peakValue)
                         if (skill.type == "frequency") {
-                            offset += envelope * 12.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
+                            // From AllSing _433.js:229: y *= Math.pow(2, (2*envelope)/12.0)
+                            // Converting multiplicative ratio to additive semitones: 2 * envelope
+                            offset += 2.0 * envelope * (if (skill.freqIncrease != false) 1.0 else -1.0)
                         } else if (skill.type == "trill") {
+                            // From AllSing _433.js:234-263
+                            // The original uses a random wavetable (trill_random_frequency.bin) blended with sine.
+                            // We approximate with pure sine only, ignoring the wavetable component (trillSineRatio).
+                            // The maximum trill amplitude from pure sine: _6327 = pow(2, 0.375/12)
+                            // In semitones: 0.375 semitones at full envelope
+                            val TRILL_SEMITONES = 0.375
                             val warpedTime = applyTrillSpeedGradual(
                                 beat - skill.start, 
                                 skill.peakTime - skill.start, 
                                 skill.end - skill.peakTime, 
                                 skill.trillSpeedGradual
                             )
-                            val phasePure = warpedTime * 6.0 * 2.0 * kotlin.math.PI * skill.trillSpeed
-                            val phaseShifted = phasePure + skill.trillPhase * 2.0 * kotlin.math.PI
-                            val customWave = kotlin.math.sin(phaseShifted)
-                            val pureWave = kotlin.math.sin(phasePure)
-                            val trillWave = customWave * (1.0 - skill.trillSineRatio) + pureWave * skill.trillSineRatio
-                            offset += trillWave * envelope * 12.0
+                            val phase = warpedTime * 6.0 * 2.0 * kotlin.math.PI * skill.trillSpeed
+                            val sineWave = kotlin.math.sin(phase)
+                            // Apply nonlinear envelope scaling (AllSing _581._1311)
+                            val scaledEnvelope = nonlinearEnvelopeScale(envelope)
+                            offset += sineWave * TRILL_SEMITONES * scaledEnvelope
                         }
                     }
                 }
             }
             
-            // Compensate for microtonal rounding: note.pitch can be fractional (non-12TET),
+            // Compensate for microtonal rounding: note.pitch can be fractional,
             // but CoreNote.key is integer. Embed the fractional remainder into the pitch curve.
             val currentNote = noteBounds.firstOrNull { t >= it.first && t < it.second }
             if (currentNote != null) {
@@ -253,9 +262,10 @@ object Dsc {
                 offset += rawPitch - quantizedKey.toDouble()
             }
             
-            if (offset != 0.0) {
-                convertedPoints.add((startTick + t) to offset)
-            }
+            // Always emit points to ensure the pitch curve properly returns to zero
+            // after skills end. Skipping zero points would cause the consumer to hold
+            // the last non-zero value, creating a permanent pitch offset.
+            convertedPoints.add((startTick + t) to offset)
         }
         
         return convertedPoints
