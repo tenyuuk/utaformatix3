@@ -70,6 +70,8 @@ object Dsc {
             val trackNotes = mutableListOf<CoreNote>()
             var localTick = 0L
             
+            val transposition = track.keySignature - 60
+            
             for (note in track.notes) {
                 val lengthInTicks = (note.duration * TICKS_PER_BEAT).toLong()
                 val pronunciation = note.pronunciation
@@ -81,10 +83,11 @@ object Dsc {
                         ?: pronunciation?.originalText?.takeUnless { it.isNullOrBlank() || it == "、" }
                         ?: params.defaultLyric
 
+                    // Apply Key Signature transposition directly to Note pitch
                     trackNotes.add(
                         CoreNote(
                             id = 0,
-                            key = (note.pitch + 0.5).toInt(),
+                            key = (note.pitch + transposition + 0.5).toInt(),
                             lyric = lyric,
                             tickOn = startTick + localTick,
                             tickOff = startTick + localTick + lengthInTicks,
@@ -144,97 +147,106 @@ object Dsc {
         return y * peakValue
     }
 
-    private fun parsePitch(track: DscTrack, startTick: Long): List<Pair<Long, Double>> {
-        val convertedPoints = mutableListOf<Pair<Long, Double>>()
-        val transpositionCents = (track.keySignature - 60) * 100.0
-        var currentLocalTick = 0L
-        
-        for (note in track.notes) {
-            val lengthInTicks = (note.duration * TICKS_PER_BEAT).toLong()
-            val pronunciation = note.pronunciation
-            val isRest = pronunciation?.isRest ?: true
-            val paramDetails = pronunciation?.paramDetails
-            
-            if (!isRest && paramDetails != null) {
-                var segmentAccumulatedPercent = 0.0
-                val array = paramDetails.coreParams
-                if (array != null) {
-                   for (subParam in array) {
-                       val segPercent = (subParam.durationPermille ?: 1000.0) / 1000.0
-                       val segLength = segPercent * lengthInTicks
-                       val segStartTick = currentLocalTick + (segmentAccumulatedPercent * lengthInTicks).toLong()
-                       
-                       val st = subParam.startPointTime ?: 0.0
-                       val et = subParam.endPointTime ?: 0.0
-                       val sf = (subParam.startPointFreq ?: 0.0) * 1200.0 + transpositionCents
-                       val ef = (subParam.endPointFreq ?: 0.0) * 1200.0 + transpositionCents
-                       
-                       val absSegStartTick = startTick + segStartTick
-                       val startZeroTick = absSegStartTick + (st * segLength).toLong()
-                       val endZeroTick = absSegStartTick + ((1.0 + et) * segLength).toLong()
-                       val endTick = absSegStartTick + segLength.toLong()
-                       
-                       if (subParam.startPointFreq != null || transpositionCents != 0.0) {
-                           convertedPoints.add(absSegStartTick to sf)
-                           convertedPoints.add(startZeroTick to 0.0)
-                       }
-                       if (subParam.endPointFreq != null || transpositionCents != 0.0) {
-                           convertedPoints.add(endZeroTick to 0.0)
-                           convertedPoints.add(endTick to ef)
-                       }
-                       segmentAccumulatedPercent += segPercent
-                   }
-                }
+    private fun sampleCoreParams(localTick: Long, lengthInTicks: Long, params: List<DscCoreParam>): Double {
+        val tRatio = localTick.toDouble() / lengthInTicks
+        var accumulated = 0.0
+        for (sub in params) {
+            val segPercent = (sub.durationPermille ?: 1000.0) / 1000.0
+            if (tRatio >= accumulated && tRatio <= accumulated + segPercent) {
+                val segLocalRatio = (tRatio - accumulated) / segPercent
+                val st = sub.startPointTime ?: 0.0
+                val et = sub.endPointTime ?: 0.0
+                val sf = (sub.startPointFreq ?: 0.0) * 1200.0
+                val ef = (sub.endPointFreq ?: 0.0) * 1200.0
                 
-                val trailingParams = paramDetails.trailingSegment
-                if (trailingParams != null) {
-                   val segPercent = (trailingParams.durationPermille ?: 1000.0) / 1000.0
-                   val segLength = segPercent * lengthInTicks
-                   val st = trailingParams.startPointTime ?: 0.0
-                   val et = trailingParams.endPointTime ?: 0.0
-                   val sf = (trailingParams.startPointFreq ?: 0.0) * 1200.0 + transpositionCents
-                   val ef = (trailingParams.endPointFreq ?: 0.0) * 1200.0 + transpositionCents
-                   
-                   val startT = startTick + currentLocalTick
-                   val startZeroTick = startT + (st * segLength).toLong()
-                   val endZeroTick = startT + ((1.0 + et) * segLength).toLong()
-                   val endTick = startT + segLength.toLong()
-                   
-                   if (trailingParams.startPointFreq != null || transpositionCents != 0.0) {
-                       convertedPoints.add(startT to sf)
-                       convertedPoints.add(startZeroTick to 0.0)
-                   }
-                   if (trailingParams.endPointFreq != null || transpositionCents != 0.0) {
-                       convertedPoints.add(endZeroTick to 0.0)
-                       convertedPoints.add(endTick to ef)
-                   }
+                if (segLocalRatio <= st && st > 0) {
+                    val progress = segLocalRatio / st
+                    // smooth step from sf to 0
+                    return sf * (1.0 - progress)
+                } else if (segLocalRatio >= (1.0 + et) && et < 0) {
+                    val progress = (segLocalRatio - (1.0 + et)) / (-et)
+                    // smooth step from 0 to ef
+                    return ef * progress
+                } else {
+                    return 0.0
                 }
             }
-            currentLocalTick += lengthInTicks
+            accumulated += segPercent
+        }
+        return 0.0
+    }
+
+    private fun parsePitch(track: DscTrack, startTick: Long): List<Pair<Long, Double>> {
+        val convertedPoints = mutableListOf<Pair<Long, Double>>()
+        var currentLocalTick = 0L
+        
+        val trackDurationTicks = track.notes.sumOf { (it.duration * TICKS_PER_BEAT).toLong() }
+        if (trackDurationTicks == 0L) return emptyList()
+        
+        // Prepare note timing mapping
+        val noteBounds = mutableListOf<Triple<Long, Long, DscNote>>() // start, end, note
+        var tAccum = 0L
+        for (note in track.notes) {
+            val len = (note.duration * TICKS_PER_BEAT).toLong()
+            noteBounds.add(Triple(tAccum, tAccum + len, note))
+            tAccum += len
         }
         
-        val trackDurationTicks = currentLocalTick
-        if (track.skills != null && trackDurationTicks > 0) {
-            val step = 10L
-            for (t in 0 until trackDurationTicks step step) {
-                val beat = t.toDouble() / TICKS_PER_BEAT
-                var skillCentOffset = 0.0
-                
+        val step = 5L
+        for (t in 0 until trackDurationTicks step step) {
+            val beat = t.toDouble() / TICKS_PER_BEAT
+            var offset = 0.0
+            
+            // 1. Evaluate note params
+            val currentNote = noteBounds.firstOrNull { t >= it.first && t < it.second }
+            if (currentNote != null) {
+                val (tStart, tEnd, note) = currentNote
+                val lengthInTicks = tEnd - tStart
+                val p = note.pronunciation
+                if (p != null && (p.isRest == false || p.isRest == null)) {
+                    val details = p.paramDetails
+                    if (details != null) {
+                        val localT = t - tStart
+                        val array = details.coreParams
+                        if (array != null && array.isNotEmpty()) {
+                            offset += sampleCoreParams(localT, lengthInTicks, array)
+                        }
+                        val trailing = details.trailingSegment
+                        if (trailing != null) {
+                            val st = trailing.startPointTime ?: 0.0
+                            val et = trailing.endPointTime ?: 0.0
+                            val sf = (trailing.startPointFreq ?: 0.0) * 1200.0
+                            val ef = (trailing.endPointFreq ?: 0.0) * 1200.0
+                            val ratio = localT.toDouble() / lengthInTicks
+                            
+                            if (ratio <= st && st > 0) {
+                                offset += sf * (1.0 - ratio / st)
+                            } else if (ratio >= (1.0 + et) && et < 0) {
+                                offset += ef * ((ratio - (1.0 + et)) / (-et))
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 2. Evaluate track skills
+            if (track.skills != null) {
                 for (skill in track.skills!!) {
                     if (beat >= skill.start && beat <= skill.end) {
                         val envelope = evaluateEnvelope(beat, skill.start, skill.peakTime, skill.end, skill.sharpness, skill.peakValue)
                         if (skill.type == "frequency") {
-                            skillCentOffset += envelope * 1200.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
+                            offset += envelope * 1200.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
                         } else if (skill.type == "trill") {
                             val phase = (beat - skill.start) * skill.trillSpeed * 2.0 * kotlin.math.PI * 6.0
                             val trillWave = kotlin.math.sin(phase) + kotlin.math.sin(phase * skill.trillSineRatio)
-                            skillCentOffset += trillWave * envelope * 400.0
+                            offset += trillWave * envelope * 400.0
                         }
                     }
                 }
-                if (skillCentOffset != 0.0) {
-                    convertedPoints.add((startTick + t) to skillCentOffset)
-                }
+            }
+            
+            if (offset != 0.0) {
+                convertedPoints.add((startTick + t) to offset)
             }
         }
         
