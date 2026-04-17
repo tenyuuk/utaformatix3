@@ -11,10 +11,10 @@ and [React](https://github.com/facebook/react).
 
 - Supported importing
   formats: `.vsqx(3/4)`, `.vpr`, `.vsq`, `.mid(VOCALOID)`, `.mid(standard)`, `.ust`, `.ustx`, `.ccs`,`.xml(MusicXML)`
-  , `.musicxml`, `.svp`, `.s5p`, `.dv`, `.ppsf(NT)`, `.tssln`, `.ufdata`
+  , `.musicxml`, `.svp`, `.s5p`, `.dv`, `.ppsf(NT)`, `.tssln`, `.ufdata`, `.dsc`
 - Supported exporting
   formats: `.vsqx(4)`, `.vpr`, `.vsq`, `.mid(VOCALOID)`, `.mid(standard)`, `.ust`, `.ustx`, `.ccs`, `.xml(MusicXML)`
-  , `.svp`, `.s5p`, `.dv`, `.tssln`, `.ufdata`
+  , `.svp`, `.s5p`, `.dv`, `.tssln`, `.ufdata`, `.dsc`
 - Keep information including: tracks, notes, tempo labels, time signatures
 - Detect and convert Japanese lyrics types
     - between CV and VCV
@@ -37,6 +37,7 @@ and [React](https://github.com/facebook/react).
 | SVP                  | ✓            | ✓              | ✓            |
 | S5P                  | ✓            |                | ✓            |
 | DV                   | ✓            | ✓              | ✓            |
+| DSC                  | ✓            |                | ✓            |
 
 ## Open format published (.ufdata)
 

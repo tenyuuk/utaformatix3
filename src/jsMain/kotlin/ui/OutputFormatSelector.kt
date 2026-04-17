@@ -10,6 +10,7 @@ import core.model.Format.StandardMid
 import core.model.Format.Svp
 import core.model.Format.Tssln
 import core.model.Format.UfData
+import core.model.Format.Dsc
 import core.model.Format.Ust
 import core.model.Format.Ustx
 import core.model.Format.VocaloidMid
@@ -182,6 +183,7 @@ private val Format.description: String?
             Ccs -> Strings.CcsFormatDescription
             Svp -> Strings.SvpFormatDescription
             S5p -> Strings.S5pFormatDescription
+            Dsc -> Strings.DscFormatDescription
             MusicXml -> Strings.MusicXmlFormatDescription
             Dv -> Strings.DvFormatDescription
             Vsq -> Strings.VsqFormatDescription
@@ -202,6 +204,7 @@ private val Format.iconPath: String?
             Ccs -> Resources.ccsIcon
             Svp -> Resources.svpIcon
             S5p -> Resources.s5pIcon
+            Dsc -> null // No specific icon for Dsc yet
             MusicXml -> Resources.ccsIcon
             Dv -> Resources.dvIcon
             Vsq -> Resources.vsqIcon

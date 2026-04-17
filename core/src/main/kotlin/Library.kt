@@ -110,6 +110,12 @@ fun parseUfData(
     params: ImportParams,
 ): Promise<ProjectContainer> = parse(listOf(file), params, Format.UfData)
 
+@JsExport
+fun parseDsc(
+    file: File,
+    params: ImportParams,
+): Promise<ProjectContainer> = parse(listOf(file), params, Format.Dsc)
+
 private fun parse(
     files: List<File>,
     params: ImportParams,
@@ -203,6 +209,12 @@ fun generateUfData(
     project: ProjectContainer,
     params: ConversionParams,
 ): Promise<ExportResult> = generate(project, params, Format.UfData)
+
+@JsExport
+fun generateDsc(
+    project: ProjectContainer,
+    params: ConversionParams,
+): Promise<ExportResult> = generate(project, params, Format.Dsc)
 
 private fun generate(
     project: ProjectContainer,

@@ -22,6 +22,9 @@ object Resources {
     val s5pTemplate: String
         get() = require("./format_templates/template.s5p").default as String
 
+    val dscTemplate: String
+        get() = require("./format_templates/template.dsc").default as String
+
     val ustxTemplate: String
         get() = require("./format_templates/template.ustx").default as String
 

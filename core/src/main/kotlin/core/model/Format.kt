@@ -195,6 +195,17 @@ enum class Format(
         possibleLyricsTypes = listOf(RomajiCv, RomajiVcv, KanaCv, KanaVcv),
         availableFeaturesForGeneration = listOf(ConvertPitch, ConvertPhonemes),
     ),
+    Dsc(
+        "dsc",
+        parser = { files, params ->
+            core.io.Dsc.parse(files.first(), params)
+        },
+        generator = { project, features ->
+            core.io.Dsc.generate(project, features)
+        },
+        possibleLyricsTypes = listOf(RomajiCv, KanaCv),
+        availableFeaturesForGeneration = listOf(ConvertPitch, ConvertPhonemes),
+    ),
     ;
 
     private val allExtensions get() = listOf(extension) + otherExtensions
@@ -231,6 +242,7 @@ enum class Format(
                     StandardMid,
                     Tssln,
                     UfData,
+                    Dsc,
                 )
 
         val exportable: List<Format>
@@ -250,6 +262,7 @@ enum class Format(
                     StandardMid,
                     Tssln,
                     UfData,
+                    Dsc,
                 )
 
         val vocaloidFormats: List<Format>

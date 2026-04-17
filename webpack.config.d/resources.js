@@ -11,6 +11,9 @@ config.module.rules.push({
     test: /\.s5p$/i,
     loader: 'raw-loader'
 }, {
+    test: /\.dsc$/i,
+    loader: 'raw-loader'
+}, {
     test: /\.musicxml/i,
     loader: 'raw-loader'
 }, {

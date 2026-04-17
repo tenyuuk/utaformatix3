@@ -503,19 +503,19 @@ enum class Strings(
     ImportFileSubDescription(
         en =
             "Supported file types: VSQX, VPR, VSQ, MID, USTs," +
-                " USTX, CCS, MUSICXML, XML, SVP, S5P, DV, PPSF(NT), TSSLN, UFDATA",
+                " USTX, CCS, MUSICXML, XML, SVP, S5P, DV, PPSF(NT), TSSLN, UFDATA, DSC",
         ja =
             "サポートされているファイル形式：VSQX、VPR、VSQ、MID、UST（複数可）、" +
-                "USTX、CCS、MUSICXML、XML、SVP、S5P、DV、PPSF（NT）、TSSLN、UFDATA",
+                "USTX、CCS、MUSICXML、XML、SVP、S5P、DV、PPSF（NT）、TSSLN、UFDATA、DSC",
         zhCN =
             "支持的文件类型：VSQX、VPR、VSQ、MID、UST（允许复数个）、" +
-                "USTX、CCS、MUSICXML、XML、SVP、S5P、DV、PPSF（NT）、TSSLN、UFDATA",
+                "USTX、CCS、MUSICXML、XML、SVP、S5P、DV、PPSF（NT）、TSSLN、UFDATA、DSC",
         ru =
             "Поддерживаемые форматы файлов: VSQx, VPR, VSQ, MID, UST," +
-                " USTX, CCS, MusicXML, XML, SVP, S5P, DV, PPSF(NT), TSSLN, UFDATA",
+                " USTX, CCS, MusicXML, XML, SVP, S5P, DV, PPSF(NT), TSSLN, UFDATA, DSC",
         fr =
             "Types de fichiers pris en charge : VSQX, VPR, VSQ, MID, USTs," +
-                " USTX, CCS, MUSICXML, XML, SVP, S5P, DV, PPSF(NT), TSSLN, UFDATA",
+                " USTX, CCS, MUSICXML, XML, SVP, S5P, DV, PPSF(NT), TSSLN, UFDATA, DSC",
     ),
     UnsupportedFileTypeImportError(
         en = "Unsupported file type",
@@ -721,6 +721,13 @@ enum class Strings(
         zhCN = "Synthesizer V 工程",
         ru = "Проект для Synthesizer V",
         fr = "Projet pour Synthesizer V",
+    ),
+    DscFormatDescription(
+        en = "Project for All Sing (Da Shi Chang)",
+        ja = "大市唱 プロジェクト",
+        zhCN = "大市唱 工程",
+        ru = "Проект для All Sing (Da Shi Chang)",
+        fr = "Projet pour All Sing (Da Shi Chang)",
     ),
     MusicXmlFormatDescription(
         en = "MusicXML $MUSIC_XML_VERSION (CeVIO style)",
