@@ -147,7 +147,7 @@ object Dsc {
         return y * peakValue
     }
 
-    private fun sampleCoreParams(localTick: Long, lengthInTicks: Long, params: List<DscCoreParam>): Double {
+    private fun sampleCoreParams(localTick: Long, lengthInTicks: Long, params: List<DscParamSubSegment>): Double {
         val tRatio = localTick.toDouble() / lengthInTicks
         var accumulated = 0.0
         for (sub in params) {
