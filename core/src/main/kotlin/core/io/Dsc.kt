@@ -13,6 +13,7 @@ import org.w3c.files.Blob
 import org.w3c.files.BlobPropertyBag
 import org.w3c.files.File
 import core.process.validateNotes
+import kotlin.math.pow
 
 object Dsc {
     private const val TICKS_PER_BEAT = 480L
@@ -139,7 +140,7 @@ object Dsc {
             }
         }
         var y = (1.0 + kotlin.math.cos(ratio)) / 2.0
-        y = kotlin.math.abs(y).let { kotlin.math.pow(it, sharpness) }
+        y = kotlin.math.abs(y).let { it.pow(sharpness) }
         return y * peakValue
     }
 
