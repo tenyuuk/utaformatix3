@@ -130,6 +130,24 @@ object Dsc {
         }
     }
 
+    private fun lerp(y0: Double, y1: Double, x0: Double, x1: Double, x: Double): Double {
+        if (x1 == x0) return y0
+        return y0 + (x - x0) * (y1 - y0) / (x1 - x0)
+    }
+
+    private fun applyTrillSpeedGradual(timeOffset: Double, timeToPeak: Double, timeFromPeak: Double, gradual: Double): Double {
+        val v = if (gradual < 0) lerp(1.0/3.0, 1.0, -1.0, 0.0, gradual) else lerp(1.0, 3.0, 0.0, 1.0, gradual)
+        val v2 = if (gradual < 0) lerp(3.0, 1.0, -1.0, 0.0, gradual) else lerp(1.0, 1.0/3.0, 0.0, 1.0, gradual)
+        
+        if (timeOffset <= timeToPeak) {
+            val v3 = if (timeToPeak == 0.0) 1.0 else lerp(v, 1.0, 0.0, timeToPeak, timeOffset)
+            return (v + v3) / 2.0 * timeOffset
+        } else {
+            val v4 = if (timeFromPeak == 0.0) 1.0 else lerp(1.0, v2, timeToPeak, timeToPeak + timeFromPeak, timeOffset)
+            return (v + 1.0) / 2.0 * timeToPeak + (1.0 + v4) / 2.0 * (timeOffset - timeToPeak)
+        }
+    }
+
     private fun evaluateEnvelope(x: Double, start: Double, peak: Double, end: Double, sharpness: Double, peakValue: Double): Double {
         if (x <= start || x >= end) return 0.0
         var ratio = 0.0
@@ -156,8 +174,8 @@ object Dsc {
                 val segLocalRatio = (tRatio - accumulated) / segPercent
                 val st = sub.startPointTime ?: 0.0
                 val et = sub.endPointTime ?: 0.0
-                val sf = ((sub.startPointFreq ?: 1.0) - 1.0) * 12.0
-                val ef = ((sub.endPointFreq ?: 1.0) - 1.0) * 12.0
+                val sf = (sub.startPointFreq ?: 0.0) * 12.0
+                val ef = (sub.endPointFreq ?: 0.0) * 12.0
                 
                 if (segLocalRatio <= st && st > 0) {
                     val progress = segLocalRatio / st
@@ -215,8 +233,8 @@ object Dsc {
                         if (trailing != null) {
                             val st = trailing.startPointTime ?: 0.0
                             val et = trailing.endPointTime ?: 0.0
-                            val sf = ((trailing.startPointFreq ?: 1.0) - 1.0) * 12.0
-                            val ef = ((trailing.endPointFreq ?: 1.0) - 1.0) * 12.0
+                            val sf = (trailing.startPointFreq ?: 0.0) * 12.0
+                            val ef = (trailing.endPointFreq ?: 0.0) * 12.0
                             val ratio = localT.toDouble() / lengthInTicks
                             
                             if (ratio <= st && st > 0) {
@@ -237,8 +255,17 @@ object Dsc {
                         if (skill.type == "frequency") {
                             offset += envelope * 4.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
                         } else if (skill.type == "trill") {
-                            val phase = (beat - skill.start) * skill.trillSpeed * 2.0 * kotlin.math.PI * 6.0
-                            val trillWave = kotlin.math.sin(phase) + kotlin.math.sin(phase * skill.trillSineRatio)
+                            val warpedTime = applyTrillSpeedGradual(
+                                beat - skill.start, 
+                                skill.peakTime - skill.start, 
+                                skill.end - skill.peakTime, 
+                                skill.trillSpeedGradual
+                            )
+                            val phasePure = warpedTime * 6.0 * 2.0 * kotlin.math.PI * skill.trillSpeed
+                            val phaseShifted = phasePure + skill.trillPhase * 2.0 * kotlin.math.PI
+                            val customWave = kotlin.math.sin(phaseShifted)
+                            val pureWave = kotlin.math.sin(phasePure)
+                            val trillWave = customWave * (1.0 - skill.trillSineRatio) + pureWave * skill.trillSineRatio
                             offset += trillWave * envelope * 4.0
                         }
                     }
@@ -384,11 +411,11 @@ object Dsc {
         @kotlinx.serialization.SerialName("结束") var end: Double = 0.0,
         @kotlinx.serialization.SerialName("峰值") var peakValue: Double = 0.0,
         @kotlinx.serialization.SerialName("峰尖锐") var sharpness: Double = 1.0,
-        @kotlinx.serialization.SerialName("频率增加") var freqIncrease: Boolean? = null,
-        @kotlinx.serialization.SerialName("颤音速度") var trillSpeed: Double = 0.0,
+        @kotlinx.serialization.SerialName("强度增加") var freqIncrease: Boolean? = null,
+        @kotlinx.serialization.SerialName("颤音速度") var trillSpeed: Double = 1.0,
         @kotlinx.serialization.SerialName("颤音相位") var trillPhase: Double = 0.0,
         @kotlinx.serialization.SerialName("颤音速度渐变") var trillSpeedGradual: Double = 0.0,
-        @kotlinx.serialization.SerialName("颤音正弦比例") var trillSineRatio: Double = 0.0,
+        @kotlinx.serialization.SerialName("颤音正弦比例") var trillSineRatio: Double = 1.0,
     )
 
     private val format = Format.Dsc
