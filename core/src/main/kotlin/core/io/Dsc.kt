@@ -105,7 +105,7 @@ object Dsc {
             roleToNotes.getOrPut(role) { mutableListOf() }.addAll(trackNotes)
             
             if (!params.simpleImport) {
-                val trackPitchPoints = parsePitch(track, startTick)
+                val trackPitchPoints = parsePitch(track, startTick, transposition.toDouble())
                 roleToPitchPoints.getOrPut(role) { mutableListOf() }.addAll(trackPitchPoints)
             }
         }
@@ -194,7 +194,7 @@ object Dsc {
         return 0.0
     }
 
-    private fun parsePitch(track: DscTrack, startTick: Long): List<Pair<Long, Double>> {
+    private fun parsePitch(track: DscTrack, startTick: Long, transposition: Double): List<Pair<Long, Double>> {
         val convertedPoints = mutableListOf<Pair<Long, Double>>()
         var currentLocalTick = 0L
         
@@ -215,39 +215,10 @@ object Dsc {
             val beat = t.toDouble() / TICKS_PER_BEAT
             var offset = 0.0
             
-            // 1. Evaluate note params
-            val currentNote = noteBounds.firstOrNull { t >= it.first && t < it.second }
-            if (currentNote != null) {
-                val (tStart, tEnd, note) = currentNote
-                val lengthInTicks = tEnd - tStart
-                val p = note.pronunciation
-                if (p != null && (p.isRest == false || p.isRest == null)) {
-                    val details = p.paramDetails
-                    if (details != null) {
-                        val localT = t - tStart
-                        val array = details.coreParams
-                        if (array != null && array.isNotEmpty()) {
-                            offset += sampleCoreParams(localT, lengthInTicks, array)
-                        }
-                        val trailing = details.trailingSegment
-                        if (trailing != null) {
-                            val st = trailing.startPointTime ?: 0.0
-                            val et = trailing.endPointTime ?: 0.0
-                            val sf = trailing.startPointFreq ?: 0.0
-                            val ef = trailing.endPointFreq ?: 0.0
-                            val ratio = localT.toDouble() / lengthInTicks
-                            
-                            if (ratio <= st && st > 0) {
-                                offset += sf * (1.0 - ratio / st)
-                            } else if (ratio >= (1.0 + et) && et < 0) {
-                                offset += ef * ((ratio - (1.0 + et)) / (-et))
-                            }
-                        }
-                    }
-                }
-            }
+            // coreParams (核心发音小段数组) and trailingSegment are formant/timbre parameters,
+            // NOT pitch modifications. Only skills (frequency, trill) affect pitch.
             
-            // 2. Evaluate track skills
+            // Evaluate track skills
             if (track.skills != null) {
                 for (skill in track.skills!!) {
                     if (beat >= skill.start && beat <= skill.end) {
@@ -272,11 +243,14 @@ object Dsc {
                 }
             }
             
+            // Compensate for microtonal rounding: note.pitch can be fractional (non-12TET),
+            // but CoreNote.key is integer. Embed the fractional remainder into the pitch curve.
+            val currentNote = noteBounds.firstOrNull { t >= it.first && t < it.second }
             if (currentNote != null) {
-                // local note offset to compensate for UtaFormatix integer quantization
-                val targetKey = (currentNote.note.pitch + transposition + 0.5).toInt()
-                val pitchCorrection = (currentNote.note.pitch + transposition) - targetKey.toDouble()
-                offset += pitchCorrection
+                val note = currentNote.third
+                val rawPitch = note.pitch + transposition
+                val quantizedKey = (rawPitch + 0.5).toInt()
+                offset += rawPitch - quantizedKey.toDouble()
             }
             
             if (offset != 0.0) {
