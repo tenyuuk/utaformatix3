@@ -81,7 +81,7 @@ object Dsc {
                 notes.add(
                     CoreNote(
                         id = 0,
-                        key = note.pitch,
+                        key = (note.pitch + 0.5).toInt(),
                         lyric = lyric,
                         tickOn = currentTick,
                         tickOff = currentTick + lengthInTicks,
@@ -214,7 +214,7 @@ object Dsc {
                 val restLen = note.tickOn - currentTick
                 dscNotes.add(
                     DscNote(
-                        pitch = 60,
+                        pitch = 60.0,
                         duration = restLen.toDouble() / TICKS_PER_BEAT,
                         pronunciation = DscPronunciation(isRest = true, originalText = "、", displayText = "、")
                     )
@@ -223,7 +223,7 @@ object Dsc {
             val noteDuration = note.length.toDouble() / TICKS_PER_BEAT
             dscNotes.add(
                 DscNote(
-                    pitch = note.key,
+                    pitch = note.key.toDouble(),
                     duration = noteDuration,
                     pronunciation = DscPronunciation(
                         isRest = false,
@@ -254,7 +254,7 @@ object Dsc {
 
     @Serializable
     private data class DscNote(
-        @kotlinx.serialization.SerialName("音高") var pitch: Int = 60,
+        @kotlinx.serialization.SerialName("音高") var pitch: Double = 60.0,
         @kotlinx.serialization.SerialName("时长") var duration: Double = 1.0,
         @kotlinx.serialization.SerialName("音节发音") var pronunciation: DscPronunciation? = null,
     )
