@@ -101,10 +101,11 @@ object Dsc {
             val lengthInTicks = (note.duration * TICKS_PER_BEAT).toLong()
             val pronunciation = note.pronunciation
             val isRest = pronunciation?.isRest ?: true
+            val paramDetails = pronunciation?.paramDetails
             
-            if (!isRest && pronunciation?.paramDetails != null) {
+            if (!isRest && paramDetails != null) {
                 var segmentAccumulatedPercent = 0.0
-                val array = pronunciation.paramDetails.coreParams
+                val array = paramDetails.coreParams
                 if (array != null) {
                    for (subParam in array) {
                        val segPercent = (subParam.durationPermille ?: 1000.0) / 1000.0
@@ -133,13 +134,10 @@ object Dsc {
                    }
                 }
                 
-                val trailingParams = pronunciation.paramDetails.trailingSegment
+                val trailingParams = paramDetails.trailingSegment
                 if (trailingParams != null) {
                    val segPercent = (trailingParams.durationPermille ?: 1000.0) / 1000.0
                    val segLength = segPercent * lengthInTicks
-                   // Trailing usually goes directly after the core segments. Assuming it starts near the end.
-                   // Actually, if core segments sum to 1000, trailing is past the note or concurrent?
-                   // Just map trail at the end bounds for now.
                    val segStartTick = currentTick
                    val st = trailingParams.startPointTime ?: 0.0
                    val et = trailingParams.endPointTime ?: 0.0
