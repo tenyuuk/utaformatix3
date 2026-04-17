@@ -156,8 +156,8 @@ object Dsc {
                 val segLocalRatio = (tRatio - accumulated) / segPercent
                 val st = sub.startPointTime ?: 0.0
                 val et = sub.endPointTime ?: 0.0
-                val sf = (sub.startPointFreq ?: 0.0) * 12.0
-                val ef = (sub.endPointFreq ?: 0.0) * 12.0
+                val sf = ((sub.startPointFreq ?: 1.0) - 1.0) * 12.0
+                val ef = ((sub.endPointFreq ?: 1.0) - 1.0) * 12.0
                 
                 if (segLocalRatio <= st && st > 0) {
                     val progress = segLocalRatio / st
@@ -215,8 +215,8 @@ object Dsc {
                         if (trailing != null) {
                             val st = trailing.startPointTime ?: 0.0
                             val et = trailing.endPointTime ?: 0.0
-                            val sf = (trailing.startPointFreq ?: 0.0) * 12.0
-                            val ef = (trailing.endPointFreq ?: 0.0) * 12.0
+                            val sf = ((trailing.startPointFreq ?: 1.0) - 1.0) * 12.0
+                            val ef = ((trailing.endPointFreq ?: 1.0) - 1.0) * 12.0
                             val ratio = localT.toDouble() / lengthInTicks
                             
                             if (ratio <= st && st > 0) {
@@ -235,7 +235,7 @@ object Dsc {
                     if (beat >= skill.start && beat <= skill.end) {
                         val envelope = evaluateEnvelope(beat, skill.start, skill.peakTime, skill.end, skill.sharpness, skill.peakValue)
                         if (skill.type == "frequency") {
-                            offset += envelope * 12.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
+                            offset += envelope * 4.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
                         } else if (skill.type == "trill") {
                             val phase = (beat - skill.start) * skill.trillSpeed * 2.0 * kotlin.math.PI * 6.0
                             val trillWave = kotlin.math.sin(phase) + kotlin.math.sin(phase * skill.trillSineRatio)
