@@ -2,7 +2,7 @@ name: deploy
 
 on:
     push:
-        branches: [ master, develop ]
+        branches: [ master ]
 
 concurrency:
     group: "pages"
@@ -32,19 +32,7 @@ jobs:
                     ./gradlew jsBrowserDistribution
                     mv build/dist/js/productionExecutable/* ./build/out
 
-            -   name: Check out develop branch
-                uses: actions/checkout@v4
-                with:
-                    ref: develop
-                    path: beta
-                    clean: false
 
-            -   name: Build develop branch
-                run: |
-                    cd beta
-                    ./gradlew jsBrowserDistribution
-                    mkdir ../build/out/beta
-                    mv build/dist/js/productionExecutable/* ../build/out/beta
 
             -   name: Upload artifact
                 uses: actions/upload-pages-artifact@v3
