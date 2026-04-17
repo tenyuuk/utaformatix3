@@ -52,50 +52,101 @@ object Dsc {
         project: DscProject,
         params: ImportParams,
     ): List<CoreTrack> {
-        return project.tracks.mapIndexed { index, track ->
-            val notes = parseNotes(track, params.defaultLyric)
-            val pitch = if (params.simpleImport) null else parsePitch(track)
+        val roleToNotes = mutableMapOf<String, MutableList<CoreNote>>()
+        val roleToPitchPoints = mutableMapOf<String, MutableList<Pair<Long, Double>>>()
+        
+        var currentStartTick = 0L
+        var prevStartTick = 0L
+
+        for (track in project.tracks) {
+            val isInstrumental = track.isInstrumental
+            val concurrent = track.concurrent
+            
+            val startTick = if (concurrent) prevStartTick else currentStartTick
+            prevStartTick = startTick
+            
+            var trackDurationTicks = 0L
+            val trackNotes = mutableListOf<CoreNote>()
+            var localTick = 0L
+            
+            for (note in track.notes) {
+                val lengthInTicks = (note.duration * TICKS_PER_BEAT).toLong()
+                val pronunciation = note.pronunciation
+                val isRest = pronunciation?.isRest ?: true
+                
+                if (!isRest) {
+                    val lyric = pronunciation?.nativeSyllable?.takeUnless { it.isNullOrBlank() || it == "、" }
+                        ?: pronunciation?.displayText?.takeUnless { it.isNullOrBlank() || it == "、" }
+                        ?: pronunciation?.originalText?.takeUnless { it.isNullOrBlank() || it == "、" }
+                        ?: params.defaultLyric
+
+                    trackNotes.add(
+                        CoreNote(
+                            id = 0,
+                            key = (note.pitch + 0.5).toInt(),
+                            lyric = lyric,
+                            tickOn = startTick + localTick,
+                            tickOff = startTick + localTick + lengthInTicks,
+                        )
+                    )
+                }
+                localTick += lengthInTicks
+                trackDurationTicks += lengthInTicks
+            }
+            
+            currentStartTick = startTick + trackDurationTicks
+            
+            if (isInstrumental) continue
+            val role = track.roles.firstOrNull() ?: ""
+            roleToNotes.getOrPut(role) { mutableListOf() }.addAll(trackNotes)
+            
+            if (!params.simpleImport) {
+                val trackPitchPoints = parsePitch(track, startTick)
+                roleToPitchPoints.getOrPut(role) { mutableListOf() }.addAll(trackPitchPoints)
+            }
+        }
+        
+        var trackId = 0
+        return roleToNotes.map { (role, notes) ->
+            val trackName = if (role.isNotBlank()) role else "Track ${trackId + 1}"
+            val pitchObj = if (!params.simpleImport) {
+                val points = roleToPitchPoints[role] ?: emptyList()
+                val sortedPoints = points.sortedBy { it.first }.distinctBy { it.first }
+                if (sortedPoints.isNotEmpty()) {
+                    Pitch(sortedPoints, isAbsolute = false)
+                } else null
+            } else null
+            
             CoreTrack(
-                id = index,
-                name = "Track ${index + 1}",
-                notes = notes,
-                pitch = pitch,
+                id = trackId++,
+                name = trackName,
+                notes = notes.sortedBy { it.tickOn },
+                pitch = pitchObj,
             ).validateNotes()
         }
     }
 
-    private fun parseNotes(track: DscTrack, defaultLyric: String): List<CoreNote> {
-        val notes = mutableListOf<CoreNote>()
-        var currentTick = 0L
-        for (note in track.notes) {
-            val lengthInTicks = (note.duration * TICKS_PER_BEAT).toLong()
-            val pronunciation = note.pronunciation
-            val isRest = pronunciation?.isRest ?: true
-            
-            if (!isRest) {
-                val lyric = pronunciation?.nativeSyllable?.takeUnless { it.isNullOrBlank() || it == "、" }
-                    ?: pronunciation?.displayText?.takeUnless { it.isNullOrBlank() || it == "、" }
-                    ?: pronunciation?.originalText?.takeUnless { it.isNullOrBlank() || it == "、" }
-                    ?: defaultLyric
-
-                notes.add(
-                    CoreNote(
-                        id = 0,
-                        key = (note.pitch + 0.5).toInt(),
-                        lyric = lyric,
-                        tickOn = currentTick,
-                        tickOff = currentTick + lengthInTicks,
-                    )
-                )
+    private fun evaluateEnvelope(x: Double, start: Double, peak: Double, end: Double, sharpness: Double, peakValue: Double): Double {
+        if (x <= start || x >= end) return 0.0
+        var ratio = 0.0
+        if (x <= peak) {
+            if (kotlin.math.abs(peak - start) > 1e-12) {
+                ratio = -kotlin.math.PI * (peak - x) / (peak - start)
             }
-            currentTick += lengthInTicks
+        } else {
+            if (kotlin.math.abs(peak - end) > 1e-12) {
+                ratio = kotlin.math.PI * (x - peak) / (end - peak)
+            }
         }
-        return notes
+        var y = (1.0 + kotlin.math.cos(ratio)) / 2.0
+        y = kotlin.math.abs(y).let { kotlin.math.pow(it, sharpness) }
+        return y * peakValue
     }
 
-    private fun parsePitch(track: DscTrack): Pitch? {
+    private fun parsePitch(track: DscTrack, startTick: Long): List<Pair<Long, Double>> {
         val convertedPoints = mutableListOf<Pair<Long, Double>>()
-        var currentTick = 0L
+        val transpositionCents = (track.keySignature - 60) * 100.0
+        var currentLocalTick = 0L
         
         for (note in track.notes) {
             val lengthInTicks = (note.duration * TICKS_PER_BEAT).toLong()
@@ -110,23 +161,23 @@ object Dsc {
                    for (subParam in array) {
                        val segPercent = (subParam.durationPermille ?: 1000.0) / 1000.0
                        val segLength = segPercent * lengthInTicks
-                       val segStartTick = currentTick + (segmentAccumulatedPercent * lengthInTicks).toLong()
+                       val segStartTick = currentLocalTick + (segmentAccumulatedPercent * lengthInTicks).toLong()
                        
                        val st = subParam.startPointTime ?: 0.0
                        val et = subParam.endPointTime ?: 0.0
-                       val sf = (subParam.startPointFreq ?: 0.0) * 1000.0
-                       val ef = (subParam.endPointFreq ?: 0.0) * 1000.0
+                       val sf = (subParam.startPointFreq ?: 0.0) * 1200.0 + transpositionCents
+                       val ef = (subParam.endPointFreq ?: 0.0) * 1200.0 + transpositionCents
                        
-                       val startTick = segStartTick
-                       val startZeroTick = segStartTick + (st * segLength).toLong()
-                       val endZeroTick = segStartTick + ((1.0 + et) * segLength).toLong()
-                       val endTick = segStartTick + segLength.toLong()
+                       val absSegStartTick = startTick + segStartTick
+                       val startZeroTick = absSegStartTick + (st * segLength).toLong()
+                       val endZeroTick = absSegStartTick + ((1.0 + et) * segLength).toLong()
+                       val endTick = absSegStartTick + segLength.toLong()
                        
-                       if (sf != 0.0) {
-                           convertedPoints.add(startTick to sf)
+                       if (subParam.startPointFreq != null || transpositionCents != 0.0) {
+                           convertedPoints.add(absSegStartTick to sf)
                            convertedPoints.add(startZeroTick to 0.0)
                        }
-                       if (ef != 0.0) {
+                       if (subParam.endPointFreq != null || transpositionCents != 0.0) {
                            convertedPoints.add(endZeroTick to 0.0)
                            convertedPoints.add(endTick to ef)
                        }
@@ -138,31 +189,55 @@ object Dsc {
                 if (trailingParams != null) {
                    val segPercent = (trailingParams.durationPermille ?: 1000.0) / 1000.0
                    val segLength = segPercent * lengthInTicks
-                   val segStartTick = currentTick
                    val st = trailingParams.startPointTime ?: 0.0
                    val et = trailingParams.endPointTime ?: 0.0
-                   val sf = (trailingParams.startPointFreq ?: 0.0) * 1000.0
-                   val ef = (trailingParams.endPointFreq ?: 0.0) * 1000.0
+                   val sf = (trailingParams.startPointFreq ?: 0.0) * 1200.0 + transpositionCents
+                   val ef = (trailingParams.endPointFreq ?: 0.0) * 1200.0 + transpositionCents
                    
-                   val startTick = segStartTick
-                   val startZeroTick = segStartTick + (st * segLength).toLong()
-                   val endZeroTick = segStartTick + ((1.0 + et) * segLength).toLong()
-                   val endTick = segStartTick + segLength.toLong()
+                   val startT = startTick + currentLocalTick
+                   val startZeroTick = startT + (st * segLength).toLong()
+                   val endZeroTick = startT + ((1.0 + et) * segLength).toLong()
+                   val endTick = startT + segLength.toLong()
                    
-                   if (sf != 0.0) {
-                       convertedPoints.add(startTick to sf)
+                   if (trailingParams.startPointFreq != null || transpositionCents != 0.0) {
+                       convertedPoints.add(startT to sf)
                        convertedPoints.add(startZeroTick to 0.0)
                    }
-                   if (ef != 0.0) {
+                   if (trailingParams.endPointFreq != null || transpositionCents != 0.0) {
                        convertedPoints.add(endZeroTick to 0.0)
                        convertedPoints.add(endTick to ef)
                    }
                 }
             }
-            currentTick += lengthInTicks
+            currentLocalTick += lengthInTicks
         }
         
-        return Pitch(convertedPoints.sortedBy { it.first }.distinctBy { it.first }, isAbsolute = false).takeIf { it.data.isNotEmpty() }
+        val trackDurationTicks = currentLocalTick
+        if (track.skills != null && trackDurationTicks > 0) {
+            val step = 10L
+            for (t in 0 until trackDurationTicks step step) {
+                val beat = t.toDouble() / TICKS_PER_BEAT
+                var skillCentOffset = 0.0
+                
+                for (skill in track.skills!!) {
+                    if (beat >= skill.start && beat <= skill.end) {
+                        val envelope = evaluateEnvelope(beat, skill.start, skill.peakTime, skill.end, skill.sharpness, skill.peakValue)
+                        if (skill.type == "frequency") {
+                            skillCentOffset += envelope * 1200.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
+                        } else if (skill.type == "trill") {
+                            val phase = (beat - skill.start) * skill.trillSpeed * 2.0 * kotlin.math.PI * 6.0
+                            val trillWave = kotlin.math.sin(phase) + kotlin.math.sin(phase * skill.trillSineRatio)
+                            skillCentOffset += trillWave * envelope * 400.0
+                        }
+                    }
+                }
+                if (skillCentOffset != 0.0) {
+                    convertedPoints.add((startTick + t) to skillCentOffset)
+                }
+            }
+        }
+        
+        return convertedPoints
     }
 
     fun generate(
@@ -250,6 +325,11 @@ object Dsc {
         @kotlinx.serialization.SerialName("每分钟拍数") var bpm: Double? = null,
         @kotlinx.serialization.SerialName("音符") var notes: List<DscNote> = listOf(),
         @kotlinx.serialization.SerialName("声乐声带") var vocalCords: List<JsonElement>? = null,
+        @kotlinx.serialization.SerialName("角色") var roles: List<String> = listOf(""),
+        @kotlinx.serialization.SerialName("纯音乐") var isInstrumental: Boolean = false,
+        @kotlinx.serialization.SerialName("跟随上一行一起播放") var concurrent: Boolean = false,
+        @kotlinx.serialization.SerialName("调号") var keySignature: Int = 60,
+        @kotlinx.serialization.SerialName("技巧") var skills: List<DscSkill>? = null,
     )
 
     @Serializable
@@ -281,6 +361,21 @@ object Dsc {
         @kotlinx.serialization.SerialName("开始控制点频率") var startPointFreq: Double? = null,
         @kotlinx.serialization.SerialName("结束控制点时间") var endPointTime: Double? = null,
         @kotlinx.serialization.SerialName("结束控制点频率") var endPointFreq: Double? = null,
+    )
+
+    @Serializable
+    private data class DscSkill(
+        @kotlinx.serialization.SerialName("类型") var type: String = "",
+        @kotlinx.serialization.SerialName("开始") var start: Double = 0.0,
+        @kotlinx.serialization.SerialName("峰的时间") var peakTime: Double = 0.0,
+        @kotlinx.serialization.SerialName("结束") var end: Double = 0.0,
+        @kotlinx.serialization.SerialName("峰值") var peakValue: Double = 0.0,
+        @kotlinx.serialization.SerialName("峰尖锐") var sharpness: Double = 1.0,
+        @kotlinx.serialization.SerialName("频率增加") var freqIncrease: Boolean? = null,
+        @kotlinx.serialization.SerialName("颤音速度") var trillSpeed: Double = 0.0,
+        @kotlinx.serialization.SerialName("颤音相位") var trillPhase: Double = 0.0,
+        @kotlinx.serialization.SerialName("颤音速度渐变") var trillSpeedGradual: Double = 0.0,
+        @kotlinx.serialization.SerialName("颤音正弦比例") var trillSineRatio: Double = 0.0,
     )
 
     private val format = Format.Dsc
