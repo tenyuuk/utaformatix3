@@ -174,8 +174,8 @@ object Dsc {
                 val segLocalRatio = (tRatio - accumulated) / segPercent
                 val st = sub.startPointTime ?: 0.0
                 val et = sub.endPointTime ?: 0.0
-                val sf = (sub.startPointFreq ?: 0.0) * 12.0
-                val ef = (sub.endPointFreq ?: 0.0) * 12.0
+                val sf = sub.startPointFreq ?: 0.0
+                val ef = sub.endPointFreq ?: 0.0
                 
                 if (segLocalRatio <= st && st > 0) {
                     val progress = segLocalRatio / st
@@ -233,8 +233,8 @@ object Dsc {
                         if (trailing != null) {
                             val st = trailing.startPointTime ?: 0.0
                             val et = trailing.endPointTime ?: 0.0
-                            val sf = (trailing.startPointFreq ?: 0.0) * 12.0
-                            val ef = (trailing.endPointFreq ?: 0.0) * 12.0
+                            val sf = trailing.startPointFreq ?: 0.0
+                            val ef = trailing.endPointFreq ?: 0.0
                             val ratio = localT.toDouble() / lengthInTicks
                             
                             if (ratio <= st && st > 0) {
@@ -253,7 +253,7 @@ object Dsc {
                     if (beat >= skill.start && beat <= skill.end) {
                         val envelope = evaluateEnvelope(beat, skill.start, skill.peakTime, skill.end, skill.sharpness, skill.peakValue)
                         if (skill.type == "frequency") {
-                            offset += envelope * 4.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
+                            offset += envelope * 12.0 * (if (skill.freqIncrease != false) 1.0 else -1.0)
                         } else if (skill.type == "trill") {
                             val warpedTime = applyTrillSpeedGradual(
                                 beat - skill.start, 
@@ -266,10 +266,17 @@ object Dsc {
                             val customWave = kotlin.math.sin(phaseShifted)
                             val pureWave = kotlin.math.sin(phasePure)
                             val trillWave = customWave * (1.0 - skill.trillSineRatio) + pureWave * skill.trillSineRatio
-                            offset += trillWave * envelope * 4.0
+                            offset += trillWave * envelope * 12.0
                         }
                     }
                 }
+            }
+            
+            if (currentNote != null) {
+                // local note offset to compensate for UtaFormatix integer quantization
+                val targetKey = (currentNote.note.pitch + transposition + 0.5).toInt()
+                val pitchCorrection = (currentNote.note.pitch + transposition) - targetKey.toDouble()
+                offset += pitchCorrection
             }
             
             if (offset != 0.0) {
@@ -411,7 +418,7 @@ object Dsc {
         @kotlinx.serialization.SerialName("结束") var end: Double = 0.0,
         @kotlinx.serialization.SerialName("峰值") var peakValue: Double = 0.0,
         @kotlinx.serialization.SerialName("峰尖锐") var sharpness: Double = 1.0,
-        @kotlinx.serialization.SerialName("强度增加") var freqIncrease: Boolean? = null,
+        @kotlinx.serialization.SerialName("频率增加") var freqIncrease: Boolean? = null,
         @kotlinx.serialization.SerialName("颤音速度") var trillSpeed: Double = 1.0,
         @kotlinx.serialization.SerialName("颤音相位") var trillPhase: Double = 0.0,
         @kotlinx.serialization.SerialName("颤音速度渐变") var trillSpeedGradual: Double = 0.0,
