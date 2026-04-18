@@ -49,14 +49,23 @@ object Dsc {
         )
     }
 
+    /**
+     * Cleans an instrument name by stripping non-alphanumeric/non-CJK special characters
+     * (e.g. "MidiInstrument✾defalult✾154,57" → "MidiInstrument defalult 154,57").
+     */
+    private fun cleanInstrumentName(raw: String): String {
+        // Replace any character that is not a letter, digit, CJK, comma, dot, hyphen, or space with a space
+        return raw.replace(Regex("[^\\w\\s,.\\-]"), " ").replace(Regex("\\s+"), " ").trim()
+    }
+
     private fun parseTracks(
         project: DscProject,
         params: ImportParams,
     ): List<CoreTrack> {
-        val roleToNotes = mutableMapOf<String, MutableList<CoreNote>>()
-        val roleToPitchPoints = mutableMapOf<String, MutableList<Pair<Long, Double>>>()
-        // Instrument tracks grouped by role name
-        val instRoleToNotes = mutableMapOf<String, MutableList<CoreNote>>()
+        // Unified grouping: key → notes, key → pitch points
+        // For vocal tracks, key = role name; for instrument tracks, key = cleaned instrument name
+        val keyToNotes = mutableMapOf<String, MutableList<CoreNote>>()
+        val keyToPitchPoints = mutableMapOf<String, MutableList<Pair<Long, Double>>>()
         
         var currentStartTick = 0L
         var groupStartTick = 0L  // Start tick of the current concurrent group
@@ -86,10 +95,13 @@ object Dsc {
                 val isRest = pronunciation?.isRest ?: true
                 
                 if (!isRest) {
-                    val lyric = pronunciation?.nativeSyllable?.takeUnless { it.isNullOrBlank() || it == "、" }
-                        ?: pronunciation?.displayText?.takeUnless { it.isNullOrBlank() || it == "、" }
-                        ?: pronunciation?.originalText?.takeUnless { it.isNullOrBlank() || it == "、" }
-                        ?: params.defaultLyric
+                    // Instrument tracks use fixed lyric "a"
+                    val lyric = if (isInstrumental) "a" else {
+                        pronunciation?.nativeSyllable?.takeUnless { it.isNullOrBlank() || it == "、" }
+                            ?: pronunciation?.displayText?.takeUnless { it.isNullOrBlank() || it == "、" }
+                            ?: pronunciation?.originalText?.takeUnless { it.isNullOrBlank() || it == "、" }
+                            ?: params.defaultLyric
+                    }
 
                     trackNotes.add(
                         CoreNote(
@@ -111,25 +123,27 @@ object Dsc {
                 groupMaxEndTick = trackEndTick
             }
             
-            val role = track.roles.firstOrNull() ?: ""
-            if (isInstrumental) {
-                // Collect instrument tracks grouped by role
-                instRoleToNotes.getOrPut(role) { mutableListOf() }.addAll(trackNotes)
+            // Determine grouping key: instrument name for instrument tracks, role for vocal tracks
+            val groupKey = if (isInstrumental) {
+                val rawInst = track.instruments.firstOrNull { it.isNotBlank() } ?: ""
+                cleanInstrumentName(rawInst).ifBlank { "Instrument" }
             } else {
-                roleToNotes.getOrPut(role) { mutableListOf() }.addAll(trackNotes)
-                
-                if (!params.simpleImport) {
-                    val trackPitchPoints = parsePitch(track, startTick, transposition.toDouble())
-                    roleToPitchPoints.getOrPut(role) { mutableListOf() }.addAll(trackPitchPoints)
-                }
+                track.roles.firstOrNull() ?: ""
+            }
+            
+            keyToNotes.getOrPut(groupKey) { mutableListOf() }.addAll(trackNotes)
+            
+            if (!params.simpleImport) {
+                val trackPitchPoints = parsePitch(track, startTick, transposition.toDouble())
+                keyToPitchPoints.getOrPut(groupKey) { mutableListOf() }.addAll(trackPitchPoints)
             }
         }
         
         var trackId = 0
-        val vocalTracks = roleToNotes.map { (role, notes) ->
-            val trackName = if (role.isNotBlank()) role else "Track ${trackId + 1}"
+        return keyToNotes.map { (key, notes) ->
+            val trackName = key.ifBlank { "Track ${trackId + 1}" }
             val pitchObj = if (!params.simpleImport) {
-                val points = roleToPitchPoints[role] ?: emptyList()
+                val points = keyToPitchPoints[key] ?: emptyList()
                 val sortedPoints = points.sortedBy { it.first }.distinctBy { it.first }
                 if (sortedPoints.isNotEmpty()) {
                     Pitch(sortedPoints, isAbsolute = false)
@@ -143,19 +157,6 @@ object Dsc {
                 pitch = pitchObj,
             ).validateNotes()
         }
-        
-        // Create tracks for instrument parts
-        val instrumentTracks = instRoleToNotes.map { (role, notes) ->
-            val trackName = if (role.isNotBlank()) "$role (Inst)" else "Instrument ${trackId + 1}"
-            CoreTrack(
-                id = trackId++,
-                name = trackName,
-                notes = notes.sortedBy { it.tickOn },
-                pitch = null,
-            ).validateNotes()
-        }
-        
-        return vocalTracks + instrumentTracks
     }
 
     private fun lerp(y0: Double, y1: Double, x0: Double, x1: Double, x: Double): Double {
@@ -385,6 +386,7 @@ object Dsc {
         @kotlinx.serialization.SerialName("音符") var notes: List<DscNote> = listOf(),
         @kotlinx.serialization.SerialName("声乐声带") var vocalCords: List<JsonElement>? = null,
         @kotlinx.serialization.SerialName("角色") var roles: List<String> = listOf(""),
+        @kotlinx.serialization.SerialName("乐器") var instruments: List<String> = listOf(),
         @kotlinx.serialization.SerialName("纯音乐") var isInstrumental: Boolean = false,
         @kotlinx.serialization.SerialName("跟随上一行一起播放") var concurrent: Boolean = false,
         @kotlinx.serialization.SerialName("调号") var keySignature: Int = 60,
