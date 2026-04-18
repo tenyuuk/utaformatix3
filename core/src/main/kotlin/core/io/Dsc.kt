@@ -55,16 +55,24 @@ object Dsc {
     ): List<CoreTrack> {
         val roleToNotes = mutableMapOf<String, MutableList<CoreNote>>()
         val roleToPitchPoints = mutableMapOf<String, MutableList<Pair<Long, Double>>>()
+        // Instrument tracks grouped by role name
+        val instRoleToNotes = mutableMapOf<String, MutableList<CoreNote>>()
         
         var currentStartTick = 0L
-        var prevStartTick = 0L
+        var groupStartTick = 0L  // Start tick of the current concurrent group
+        var groupMaxEndTick = 0L // Maximum end tick across all tracks in the concurrent group
 
         for (track in project.tracks) {
             val isInstrumental = track.isInstrumental
             val concurrent = track.concurrent
             
-            val startTick = if (concurrent) prevStartTick else currentStartTick
-            prevStartTick = startTick
+            if (!concurrent) {
+                // Non-concurrent track: advance to the end of the previous group
+                currentStartTick = groupMaxEndTick
+                groupStartTick = currentStartTick
+            }
+            
+            val startTick = if (concurrent) groupStartTick else currentStartTick
             
             var trackDurationTicks = 0L
             val trackNotes = mutableListOf<CoreNote>()
@@ -83,7 +91,6 @@ object Dsc {
                         ?: pronunciation?.originalText?.takeUnless { it.isNullOrBlank() || it == "、" }
                         ?: params.defaultLyric
 
-                    // Apply Key Signature transposition directly to Note pitch
                     trackNotes.add(
                         CoreNote(
                             id = 0,
@@ -98,20 +105,28 @@ object Dsc {
                 trackDurationTicks += lengthInTicks
             }
             
-            currentStartTick = startTick + trackDurationTicks
+            // Track the maximum end tick across all concurrent tracks in this group
+            val trackEndTick = startTick + trackDurationTicks
+            if (trackEndTick > groupMaxEndTick) {
+                groupMaxEndTick = trackEndTick
+            }
             
-            if (isInstrumental) continue
             val role = track.roles.firstOrNull() ?: ""
-            roleToNotes.getOrPut(role) { mutableListOf() }.addAll(trackNotes)
-            
-            if (!params.simpleImport) {
-                val trackPitchPoints = parsePitch(track, startTick, transposition.toDouble())
-                roleToPitchPoints.getOrPut(role) { mutableListOf() }.addAll(trackPitchPoints)
+            if (isInstrumental) {
+                // Collect instrument tracks grouped by role
+                instRoleToNotes.getOrPut(role) { mutableListOf() }.addAll(trackNotes)
+            } else {
+                roleToNotes.getOrPut(role) { mutableListOf() }.addAll(trackNotes)
+                
+                if (!params.simpleImport) {
+                    val trackPitchPoints = parsePitch(track, startTick, transposition.toDouble())
+                    roleToPitchPoints.getOrPut(role) { mutableListOf() }.addAll(trackPitchPoints)
+                }
             }
         }
         
         var trackId = 0
-        return roleToNotes.map { (role, notes) ->
+        val vocalTracks = roleToNotes.map { (role, notes) ->
             val trackName = if (role.isNotBlank()) role else "Track ${trackId + 1}"
             val pitchObj = if (!params.simpleImport) {
                 val points = roleToPitchPoints[role] ?: emptyList()
@@ -128,6 +143,19 @@ object Dsc {
                 pitch = pitchObj,
             ).validateNotes()
         }
+        
+        // Create tracks for instrument parts
+        val instrumentTracks = instRoleToNotes.map { (role, notes) ->
+            val trackName = if (role.isNotBlank()) "$role (Inst)" else "Instrument ${trackId + 1}"
+            CoreTrack(
+                id = trackId++,
+                name = trackName,
+                notes = notes.sortedBy { it.tickOn },
+                pitch = null,
+            ).validateNotes()
+        }
+        
+        return vocalTracks + instrumentTracks
     }
 
     private fun lerp(y0: Double, y1: Double, x0: Double, x1: Double, x: Double): Double {
